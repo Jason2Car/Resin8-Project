@@ -110,10 +110,13 @@ reached out to them yet" are different problems and shouldn't read the
 same to whoever's reviewing this file. This is the file a client engineer
 downloads.
 
-## Browser demo (`quoting_engine_demo.html`)
+## Browser demo (`index.html`)
 
 A standalone, single-file interactive version of Stages 1–6 — no server,
-no build step, open it directly in a browser. Drop a `.xlsx` in or click
+no build step. Named `index.html` so it also works directly as a GitHub
+Pages site (enable Pages in repo Settings → Pages → deploy from the branch
+you push this to, and it'll load at your repo's Pages URL automatically);
+just as happy opened locally by double-clicking it. Drop a `.xlsx` in or click
 "Load sample BOM" to watch it move through the pipeline live, with weight
 sliders for Stage 5 you can drag in real time.
 
