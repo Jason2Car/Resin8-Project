@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Quoting Engine — Live Preview</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --paper: #edeee9;
+    --paper-line: #d7d3c5;
+    --ink: #1b232d;
+    --ink-soft: #545f6b;
+    --accent: #2e5e4e;
+    --accent-soft: #dde8e3;
+    --amber: #a9711f;
+    --amber-soft: #f3e6cf;
+    --rust: #a33f27;
+    --rust-soft: #f4ddd4;
+    --slate: #545f6b;
+    --slate-soft: #e2e5e8;
+    --panel: #fbfaf7;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    background-image:
+      linear-gradient(var(--paper-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 40px 24px 100px; }
+
+  header h1 {
+    font-size: 28px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+  }
+  header p.sub {
+    margin: 0 0 20px;
+    color: var(--ink-soft);
+    max-width: 62ch;
+  }
+  .notice {
+    background: var(--panel);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin-bottom: 28px;
+  }
+  .notice strong { color: var(--ink); }
+
+  /* --- intake --- */
+  .intake { display: flex; gap: 16px; align-items: stretch; margin-bottom: 32px; flex-wrap: wrap; }
+  .dropzone {
+    flex: 1 1 320px;
+    position: relative;
+    border: 1px solid var(--paper-line);
+    background: var(--panel);
+    padding: 28px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .dropzone::before, .dropzone::after,
+  .dropzone .c2::before, .dropzone .c2::after { content:""; position:absolute; width:14px; height:14px; border-color: var(--ink-soft); }
+  .dropzone::before { top:6px; left:6px; border-top:1.5px solid var(--ink-soft); border-left:1.5px solid var(--ink-soft); }
+  .dropzone::after { top:6px; right:6px; border-top:1.5px solid var(--ink-soft); border-right:1.5px solid var(--ink-soft); }
+  .dropzone .c2::before { bottom:6px; left:6px; border-bottom:1.5px solid var(--ink-soft); border-left:1.5px solid var(--ink-soft); }
+  .dropzone .c2::after { bottom:6px; right:6px; border-bottom:1.5px solid var(--ink-soft); border-right:1.5px solid var(--ink-soft); }
+  .dropzone.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .dropzone h3 { margin: 0 0 4px; font-size: 15px; }
+  .dropzone p { margin: 0; font-size: 13px; color: var(--ink-soft); }
+  .dropzone input { display: none; }
+
+  .sample-btn {
+    flex: 0 0 200px;
+    border: 1px solid var(--paper-line);
+    background: var(--panel);
+    padding: 20px;
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    color: var(--ink);
+  }
+  .sample-btn h3 { margin: 0 0 4px; font-size: 15px; }
+  .sample-btn p { margin: 0; font-size: 13px; color: var(--ink-soft); }
+  .sample-btn:hover, .dropzone:hover { border-color: var(--ink-soft); }
+
+  /* --- stepper --- */
+  .stepper { display: flex; gap: 2px; margin-bottom: 28px; }
+  .step {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--paper-line);
+    padding: 10px 12px;
+    font-size: 12.5px;
+  }
+  .step .n { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); }
+  .step .label { font-weight: 600; margin: 2px 0; }
+  .step .count { color: var(--ink-soft); font-size: 12px; }
+  .step[data-state="done"] { border-top: 2px solid var(--accent); }
+  .step[data-state="running"] { border-top: 2px solid var(--amber); }
+  .step[data-state="pending"] { opacity: .5; }
+
+  section.results { display: none; }
+  section.results.show { display: block; }
+
+  .layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel-box { background: var(--panel); border: 1px solid var(--paper-line); padding: 18px; margin-bottom: 20px; }
+  .panel-box h2 { font-size: 15px; margin: 0 0 14px; }
+  .panel-box h2 .count-tag { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); font-weight: 400; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; font-size: 11.5px; color: var(--ink-soft); padding: 5px 8px; border-bottom: 1px solid var(--paper-line); white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid #eeece4; vertical-align: top; }
+  td.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+  .scrollx { overflow-x: auto; }
+
+  .badge { display: inline-block; padding: 2px 7px 2px 8px; font-size: 11px; font-family: var(--mono); border-left: 3px solid; }
+  .badge.FIRM_QUOTE { background: var(--accent-soft); border-color: var(--accent); color: #1c3a30; }
+  .badge.ESTIMATE { background: var(--amber-soft); border-color: var(--amber); color: #5c3d10; }
+  .badge.SUBSTITUTION { background: var(--slate-soft); border-color: var(--slate); color: #333c45; }
+  .badge.UNSOURCED { background: var(--rust-soft); border-color: var(--rust); color: #5c2415; }
+
+  .review-item { padding: 9px 0; border-bottom: 1px solid #eeece4; font-size: 12.5px; }
+  .review-item:last-child { border-bottom: none; }
+  .review-item .row-tag { font-family: var(--mono); font-size: 11px; color: var(--accent); display: block; margin-bottom: 2px; }
+  .review-item p { margin: 0; color: var(--ink-soft); }
+
+  .sliders { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 6px; }
+  .slider-group { flex: 1 1 160px; }
+  .slider-group label { font-size: 12px; color: var(--ink-soft); display: flex; justify-content: space-between; }
+  .slider-group input { width: 100%; accent-color: var(--accent); }
+
+  .btn {
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn:hover { background: #2a3440; }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--paper-line); }
+
+  .detail-toggle { font-size: 12.5px; color: var(--accent); cursor: pointer; margin-top: 8px; display: inline-block; }
+  details summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 4px 0; }
+  details { border-top: 1px solid var(--paper-line); padding: 10px 0; }
+
+  .empty-note { color: var(--ink-soft); font-size: 13px; padding: 6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Quoting Engine — Live Preview</h1>
+    <p class="sub">Drop a BOM spreadsheet in and watch it move through the six-stage pipeline: normalize, resolve parts, check vendor coverage, request quotes, compare offers, and assemble a final transactable quote file.</p>
+  </header>
+
+  <div class="notice">
+    <strong>Running entirely in this browser.</strong> Stage 1 (header detection, column classification) is real, unmodified logic. Stages 2–6 use the same small mocked catalog/vendor/quote data as the working prototype — real supplier APIs, email, and portal access need server-side credentials that a static page can't hold, so anything outside that mock catalog will correctly show up as <span class="mono">NO_MATCH</span> / <span class="mono">UNSOURCED</span> rather than a fabricated result.
+  </div>
+
+  <div class="intake">
+    <div class="dropzone" id="dropzone">
+      <div class="c2"></div>
+      <h3>Drop a BOM .xlsx here</h3>
+      <p>or click to browse</p>
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+    </div>
+    <button class="sample-btn" id="sampleBtn">
+      <h3>Load sample BOM</h3>
+      <p>The messy 7-line test file used throughout the prototype build.</p>
+    </button>
+  </div>
+
+  <div class="stepper" id="stepper"></div>
+
+  <section class="results" id="results">
+
+    <div class="layout">
+      <div>
+        <div class="panel-box">
+          <h2>Final Quote <span class="count-tag" id="finalCount"></span></h2>
+          <div class="sliders">
+            <div class="slider-group"><label>Price weight <span id="wPriceLabel">0.50</span></label><input type="range" id="wPrice" min="0" max="1" step="0.05" value="0.5"></div>
+            <div class="slider-group"><label>Lead time weight <span id="wLeadLabel">0.30</span></label><input type="range" id="wLead" min="0" max="1" step="0.05" value="0.3"></div>
+            <div class="slider-group"><label>Qualification weight <span id="wQual2Label">0.20</span></label><input type="range" id="wQual" min="0" max="1" step="0.05" value="0.2"></div>
+          </div>
+          <p style="font-size:12px;color:var(--ink-soft);margin:8px 0 14px;">Weights aren't normalized to sum to 1 on purpose — tune freely and see the effect. No price/lead-time data has actually been extracted in this browser demo (that step needs an LLM), so today qualification is the only weight with visible effect.</p>
+          <div class="scrollx"><table id="finalTable"></table></div>
+          <button class="btn" id="downloadBtn" style="margin-top:16px;">Download final_quote.xlsx</button>
+        </div>
+
+        <details>
+          <summary>Stage 1 — Standardized BOM</summary>
+          <div class="scrollx"><table id="stage1Table"></table></div>
+        </details>
+        <details>
+          <summary>Stage 2 — Part Resolution</summary>
+          <div class="scrollx"><table id="stage2Table"></table></div>
+        </details>
+        <details>
+          <summary>Stage 3 — Vendor Coverage &amp; Qualification</summary>
+          <div class="scrollx"><table id="stage3Table"></table></div>
+        </details>
+        <details>
+          <summary>Stage 4 — RFQs &amp; Quotes Received</summary>
+          <div class="scrollx"><table id="stage4Table"></table></div>
+        </details>
+        <details>
+          <summary>Stage 5 — Comparison</summary>
+          <div class="scrollx"><table id="stage5Table"></table></div>
+        </details>
+      </div>
+
+      <div class="panel-box" style="position:sticky; top:20px;">
+        <h2>Review Needed <span class="count-tag" id="reviewCount"></span></h2>
+        <div id="reviewList"></div>
+      </div>
+    </div>
+
+  </section>
+
+</div>
+
+<script>
+// ============================================================
+// Stage 1 logic (unmodified from the working prototype)
+// ============================================================
+// ===================== Stage 1: BOM normalization =====================
+
+const HEADER_KEYWORDS = {
+  UNIT_ID_MFG: ["part number", "part no", "p/n", "pn", "mfg part", "mpn", "manufacturer part", "component"],
+  UNIT_ID_INTERNAL: ["internal number", "internal part", "item number"],
+  NAME: ["description", "desc", "name"],
+  SPECS: ["spec", "size", "dimension", "rating", "value", "tolerance"],
+  QUANTITY: ["qty", "quantity", "count"],
+  REASONING: ["note", "notes", "reason", "comment", "remark"],
+  OTHER: ["line", "ln", "item", "rev", "revision", "uom", "unit of measure", "manufacturer"],
+};
+
+const KNOWN_HEADER_KEYWORDS = [
+  "line", "ln", "item", "part", "p/n", "pn", "mfg", "manufacturer", "desc", "description",
+  "spec", "size", "rating", "value", "qty", "quantity", "count", "note", "notes", "comment",
+  "reason", "rev", "revision", "uom", "unit",
+];
+
+const IMPLIES_WIRING = ["motor", "servo", "pcb", "sensor", "relay", "power supply", "solenoid", "actuator"];
+const WIRING_CATEGORY = ["wire", "cable", "wiring harness", "harness", "connector", "terminal", "conduit"];
+
+function keywordMatch(text, keywords) {
+  return keywords.some(k => new RegExp("\\b" + k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "s?\\b").test(text));
+}
+
+function rowScore(cells) {
+  const nonEmpty = cells.filter(c => c !== null && c !== undefined && String(c).trim() !== "");
+  if (nonEmpty.length === 0) return -1;
+  const fillRatio = nonEmpty.length / cells.length;
+  let shortCount = 0, kwHits = 0;
+  for (const c of nonEmpty) {
+    const s = String(c).trim().toLowerCase();
+    if (s.length <= 40 && !/^\d+(\.\d+)?$/.test(s)) shortCount++;
+    if (KNOWN_HEADER_KEYWORDS.some(k => s.includes(k))) kwHits++;
+  }
+  const shortRatio = shortCount / nonEmpty.length;
+  const kwRatio = kwHits / nonEmpty.length;
+  return kwRatio * 3.0 + shortRatio * 1.5 + fillRatio * 1.0;
+}
+
+function findHeaderRow(rows, scanRows = 15) {
+  let bestIdx = 0, bestScore = -1;
+  for (let i = 0; i < Math.min(scanRows, rows.length); i++) {
+    const score = rowScore(rows[i]);
+    if (score > bestScore) { bestIdx = i; bestScore = score; }
+  }
+  return bestIdx;
+}
+
+function classifyByHeader(headerText) {
+  const h = String(headerText).trim().toLowerCase();
+  for (const [ctype, keywords] of Object.entries(HEADER_KEYWORDS)) {
+    if (keywordMatch(h, keywords)) return ctype;
+  }
+  return null;
+}
+
+function classifyByContent(values) {
+  const sample = values.filter(v => v !== null && v !== undefined && String(v).trim() !== "")
+    .slice(0, 8).map(v => String(v).trim());
+  if (sample.length === 0) return null;
+  const numericRatio = sample.filter(v => /^-?\d+(\.\d+)?$/.test(v)).length / sample.length;
+  const avgLen = sample.reduce((a, v) => a + v.length, 0) / sample.length;
+  const spaceRatio = sample.filter(v => v.includes(" ")).length / sample.length;
+  const alnumRatio = sample.filter(v => /^[A-Za-z0-9][A-Za-z0-9\-_/.]{1,20}$/.test(v)).length / sample.length;
+
+  if (numericRatio >= 0.75) return "QUANTITY";
+  if (alnumRatio >= 0.75 && spaceRatio <= 0.25 && avgLen <= 20) return "UNIT_ID_MFG";
+  if (avgLen >= 15 && spaceRatio >= 0.5) return "NAME";
+  return null;
+}
+
+function resolveColumnTypes(headers, columns) {
+  // columns: array of arrays, one per header, containing that column's values
+  //
+  // Matches the Python prototype's actual behavior: classify_by_header()
+  // there always returns confidence "strong" on any keyword match, which
+  // makes the header signal authoritative whenever it fires - content is
+  // only consulted as a fallback when there's no header match at all.
+  const mapping = {};
+  const ambiguous = [];
+  headers.forEach((h, i) => {
+    const headerGuess = classifyByHeader(h);
+    if (headerGuess) {
+      mapping[i] = headerGuess;
+      return;
+    }
+    const contentGuess = classifyByContent(columns[i]);
+    if (contentGuess) {
+      mapping[i] = contentGuess;
+    } else {
+      ambiguous.push({ index: i, header: h });
+    }
+  });
+  return { mapping, ambiguous };
+}
+
+function checkMissingWiring(names) {
+  const text = names.filter(Boolean).join(" ").toLowerCase();
+  const trigger = IMPLIES_WIRING.some(k => text.includes(k));
+  const hasWiring = WIRING_CATEGORY.some(k => text.includes(k));
+  if (trigger && !hasWiring) {
+    return "This BOM includes motors/electronics/terminal blocks but no wire, cable, or connector line items " +
+      "were found. Confirm these weren't dropped from the export before treating the BOM as complete.";
+  }
+  return null;
+}
+
+function runStage1(rawRows) {
+  const headerIdx = findHeaderRow(rawRows);
+  const headers = rawRows[headerIdx].map(h => (h === null || h === undefined) ? "" : String(h));
+  const dataRows = rawRows.slice(headerIdx + 1).filter(r => r.some(c => c !== null && c !== undefined && String(c).trim() !== ""));
+
+  const columns = headers.map((_, i) => dataRows.map(r => r[i]));
+  const { mapping } = resolveColumnTypes(headers, columns);
+
+  const roleToCol = {};
+  Object.entries(mapping).forEach(([idx, type]) => {
+    if (!(type in roleToCol)) roleToCol[type] = parseInt(idx);
+  });
+
+  const unitIdCol = roleToCol["UNIT_ID_MFG"] !== undefined ? roleToCol["UNIT_ID_MFG"] : roleToCol["UNIT_ID_INTERNAL"];
+  const internalIdCol = roleToCol["UNIT_ID_MFG"] !== undefined ? roleToCol["UNIT_ID_INTERNAL"] : undefined;
+
+  const review = [];
+  const standardized = [];
+
+  dataRows.forEach((row, i) => {
+    const sourceRow = headerIdx + 2 + i; // matches the Python prototype's 1-indexed Excel row numbering
+    const get = (col) => (col === undefined || row[col] === undefined || row[col] === null) ? "" : String(row[col]).trim();
+
+    const name = get(roleToCol["NAME"]);
+    const unitId = get(unitIdCol);
+    const specs = get(roleToCol["SPECS"]);
+    const qtyRaw = roleToCol["QUANTITY"] !== undefined ? row[roleToCol["QUANTITY"]] : "";
+    const qty = (qtyRaw === undefined || qtyRaw === null || qtyRaw === "") ? "" : qtyRaw;
+    let reasoning = get(roleToCol["REASONING"]);
+
+    if (internalIdCol !== undefined) {
+      const internalVal = get(internalIdCol);
+      if (internalVal) reasoning = reasoning ? `${reasoning} [internal id: ${internalVal}]` : `[internal id: ${internalVal}]`;
+    }
+
+    if (!unitId && !name) {
+      review.push({ row: sourceRow, issue: "No part number AND no description - cannot identify this part at all." });
+      return;
+    }
+
+    standardized.push({ sourceRow, name, unitId, specs, qty, reasoning });
+  });
+
+  standardized.forEach(r => {
+    if (r.reasoning) review.push({ row: r.sourceRow, issue: "Has reasoning/notes text but consistency could not be checked (no LLM access in this browser demo) - needs manual read-through." });
+  });
+
+  const wiringNote = checkMissingWiring(standardized.map(r => r.name));
+  if (wiringNote) review.push({ row: "(BOM-level)", issue: wiringNote });
+
+  return { standardized, review, headerRowUsed: headerIdx + 1 };
+}
+
+
+// ============================================================
+// Stages 2-6 logic (unmodified from the working prototype)
+// ============================================================
+// ===================== Stage 2: Part resolution =====================
+
+const ELECTRONIC_KEYWORDS = ["resistor", "capacitor", "diode", "transistor", "ic", "connector", "pcb",
+  "relay", "sensor", "microcontroller", "power supply", "psu", "terminal", "fuse", "cable", "wire",
+  "battery", "led", "switch"];
+const MECHANICAL_KEYWORDS = ["screw", "bolt", "nut", "washer", "bracket", "bearing", "gearbox", "shaft",
+  "coupling", "enclosure", "panel", "frame", "plate", "gasket", "o-ring", "spring", "housing", "mount"];
+
+function classifyLine(name, specs) {
+  const text = `${name} ${specs || ""}`.toLowerCase();
+  if (keywordMatch(text, ELECTRONIC_KEYWORDS)) return "ELECTRONIC";
+  if (keywordMatch(text, MECHANICAL_KEYWORDS)) return "MECHANICAL";
+  return "MECHANICAL";
+}
+
+// Same entries as mock_catalog.py in the Python prototype.
+const MOCK_EXACT_CATALOG = {
+  "TB-100": { manufacturer: "ElectroConn", description: "10-position screw terminal block, 300V rated", mpn: "TB-100" },
+  "PSU-24-5A": { manufacturer: "MeanTech", description: "24V 5A enclosed switching power supply", mpn: "PSU-24-5A" },
+  "8420-K": { manufacturer: "FastenCo", description: "Hex socket cap screw, M4 x 12mm, stainless", mpn: "8420-K" },
+  "LM-6UU": { manufacturer: "LinearMotion Inc", description: "Linear ball bearing, 6mm bore", mpn: "LM6UU" },
+};
+const MOCK_SEARCH_CATALOG = {
+  "servo motor bracket": { manufacturer: "McMaster-Carr", description: "Aluminum mounting bracket for NEMA 17 servo motors", mpn: "1234K56" },
+  "right angle gearbox, 20:1 ratio": { manufacturer: "AndyMark", description: "Right angle planetary gearbox, 20:1 ratio", mpn: "am-3103a" },
+};
+
+function findCandidate(name, unitId, specs) {
+  const category = classifyLine(name, specs);
+  if (unitId && MOCK_EXACT_CATALOG[unitId]) {
+    return { category, source: "exact_id", ...MOCK_EXACT_CATALOG[unitId] };
+  }
+  const key = name.trim().toLowerCase();
+  if (MOCK_SEARCH_CATALOG[key]) {
+    return { category, source: "description_search", ...MOCK_SEARCH_CATALOG[key] };
+  }
+  return { category, source: "none", manufacturer: "", description: "", mpn: "" };
+}
+
+function runStage2(standardized) {
+  const resolved = [];
+  const review = [];
+  standardized.forEach(line => {
+    const candidate = findCandidate(line.name, line.unitId, line.specs);
+    let matchConfidence, note;
+    if (candidate.source === "exact_id") {
+      matchConfidence = "PROBABLE_EQUIVALENT";
+      note = "Unit ID found in catalog, but plausibility could not be confirmed (no LLM access in this browser demo) - verify this is the right part before treating it as exact.";
+    } else if (candidate.source === "description_search") {
+      matchConfidence = "PROBABLE_EQUIVALENT";
+      note = "Matched by description only, no manufacturer part number was available/verifiable - needs engineering sign-off before treating as equivalent.";
+    } else {
+      matchConfidence = "NO_MATCH";
+      note = "No exact or probable match found - route to supplier discovery from scratch.";
+    }
+    resolved.push({ ...line, category: candidate.category, matchConfidence,
+      resolvedUnitId: candidate.mpn, manufacturer: candidate.manufacturer, catalogDescription: candidate.description });
+    review.push({ row: line.sourceRow, issue: note });
+  });
+  return { resolved, review };
+}
+
+// ===================== Stage 3: Vendor coverage & qualification =====================
+
+const APPROVED_VENDORS = new Set(["FastenCo", "LinearMotion Inc"]);
+const SUPPLIER_DIRECTORY = {
+  "FastenCo": { channel: "EMAIL", email: "sales@fastenco-example.com", portalUrl: null },
+  "McMaster-Carr": { channel: "EMAIL", email: "quotes@mcmaster-example.com", portalUrl: null },
+  "AndyMark": { channel: "EMAIL", email: "sales@andymark-example.com", portalUrl: null },
+  "LinearMotion Inc": { channel: "PORTAL", email: null, portalUrl: "https://portal.linearmotion-example.com/rfq" },
+};
+
+function runStage3(resolved) {
+  const sourced = [];
+  const review = [];
+  resolved.forEach(line => {
+    let vendorStatus, iso9001;
+    const contact = line.manufacturer ? SUPPLIER_DIRECTORY[line.manufacturer] : null;
+
+    if (line.matchConfidence === "NO_MATCH") {
+      vendorStatus = "UNSOURCED"; iso9001 = "";
+      review.push({ row: line.sourceRow, issue: "No supplier candidates found - needs manual sourcing, no automated path available yet." });
+    } else if (APPROVED_VENDORS.has(line.manufacturer)) {
+      vendorStatus = "APPROVED_EXISTING"; iso9001 = "N/A (pre-approved)";
+    } else {
+      vendorStatus = "NEEDS_QUALIFICATION"; iso9001 = "Unknown";
+      review.push({ row: line.sourceRow, issue: `'${line.manufacturer}' is not yet an approved vendor (ISO 9001 status: Unknown) - needs qualification review before an RFQ can be sent.` });
+    }
+
+    if (line.manufacturer && vendorStatus !== "UNSOURCED" && !contact) {
+      review.push({ row: line.sourceRow, issue: `'${line.manufacturer}' has no contact/channel on file - cannot send an RFQ until this is captured during qualification.` });
+    }
+
+    sourced.push({ ...line, vendorStatus, iso9001,
+      contactChannel: contact ? contact.channel : "", contactEmail: contact ? contact.email : "",
+      portalUrl: contact ? contact.portalUrl : "" });
+  });
+  return { sourced, review };
+}
+
+// ===================== Stage 4: RFQ dispatch & quote retrieval =====================
+
+const MOCK_EMAIL_REPLIES = {
+  "McMaster-Carr": "Thanks for reaching out. For part 1234K56 (Aluminum mounting bracket for NEMA 17 servo motors), " +
+    "qty requested: unit price $8.75, extended price varies by quantity. In stock, ships in 2 business days. Quote valid 30 days from today.",
+  "AndyMark": "We can supply the am-3103a gearbox. Note: minimum order quantity is 5 units - happy to quote at 5 if " +
+    "that works. Unit price at MOQ $42.00. Lead time 3 weeks, estimated ship 2026-09-27.",
+};
+const MOCK_PORTAL_PAGES = {
+  "LinearMotion Inc": "My Account > Quotes\n\nQuote #Q-88213 - LM6UU Linear ball bearing, 6mm bore\n" +
+    "Unit price: $3.10   Availability: In stock   Ships: same day if ordered before 2pm\nThis quote is valid through 2026-10-15.",
+};
+
+function runStage4(sourced) {
+  const rfqs = [];
+  const quotes = [];
+  const review = [];
+
+  sourced.forEach(line => {
+    if (line.vendorStatus === "UNSOURCED") return;
+    if (line.category === "ELECTRONIC") {
+      review.push({ row: line.sourceRow, issue: "Distributor part - pricing should come from a Stage 2 catalog query, not an RFQ. Skipped here." });
+      return;
+    }
+
+    if (line.contactChannel === "PORTAL") {
+      const pageText = MOCK_PORTAL_PAGES[line.manufacturer];
+      if (pageText) {
+        quotes.push({ row: line.sourceRow, source: "portal", rawText: pageText, manufacturer: line.manufacturer });
+      } else {
+        review.push({ row: line.sourceRow, issue: `Could not retrieve a quote from ${line.manufacturer}'s portal (${line.portalUrl}) - stopped at 'no_credentials' in this browser demo - needs manual login and check.` });
+      }
+      return;
+    }
+
+    if (line.contactChannel !== "EMAIL" || !line.contactEmail) {
+      review.push({ row: line.sourceRow, issue: `No usable contact/channel for '${line.manufacturer}' - needs manual outreach.` });
+      return;
+    }
+
+    const refId = `RESIN8-RFQ-${String(line.sourceRow).padStart(4, "0")}`;
+    rfqs.push({ row: line.sourceRow, referenceId: refId, manufacturer: line.manufacturer, to: line.contactEmail });
+    review.push({ row: line.sourceRow, issue: `RFQ to '${line.manufacturer}' drafted but not sent (no SMTP access in this browser demo).` });
+
+    const replyText = MOCK_EMAIL_REPLIES[line.manufacturer];
+    if (replyText) {
+      quotes.push({ row: line.sourceRow, source: "email", rawText: replyText, manufacturer: line.manufacturer });
+    }
+  });
+
+  quotes.forEach(q => {
+    review.push({ row: q.row, issue: `${q.source === "email" ? "Email" : "Portal"} content received from ${q.manufacturer} but quote fields could not be extracted (no LLM access in this browser demo) - needs manual read: ${q.rawText.slice(0, 160)}...` });
+  });
+
+  return { rfqs, quotes, review };
+}
+
+// ===================== Stage 5: Best-offer comparison =====================
+
+const DEFAULT_WEIGHTS = { price: 0.5, leadTime: 0.3, qualification: 0.2 };
+
+function qualificationScore(vendorStatus, iso9001) {
+  if (vendorStatus === "APPROVED_EXISTING") return 1.0;
+  if (iso9001 === "Certified") return 0.75;
+  if (iso9001 === "Unknown") return 0.25;
+  return 0.0;
+}
+
+function runStage5(sourced, quotes, weights) {
+  weights = weights || DEFAULT_WEIGHTS;
+  const quotesByRow = {};
+  quotes.forEach(q => { quotesByRow[q.row] = quotesByRow[q.row] || []; quotesByRow[q.row].push(q); });
+
+  const comparison = [];
+  const review = [];
+  sourced.forEach(line => {
+    const lineQuotes = quotesByRow[line.sourceRow];
+    if (!lineQuotes || lineQuotes.length === 0) return;
+
+    const qScore = qualificationScore(line.vendorStatus, line.iso9001);
+    const score = weights.qualification * qScore;
+    comparison.push({ row: line.sourceRow, manufacturer: line.manufacturer, vendorStatus: line.vendorStatus,
+      iso9001: line.iso9001, matchConfidence: line.matchConfidence, score: Math.round(score * 1000) / 1000, selected: true });
+
+    if (lineQuotes.length === 1) {
+      review.push({ row: line.sourceRow, issue: "Only one candidate quote available for this line - nothing to compare against yet (see Stage 2/3 known limitation)." });
+    }
+  });
+  return { comparison, review };
+}
+
+// ===================== Stage 6: Final output =====================
+
+function classifyStatus(vendorStatus, matchConfidence, hasPrice) {
+  if (vendorStatus === "UNSOURCED") return { status: "UNSOURCED", detail: "No supplier could be identified for this line." };
+  if (matchConfidence !== "EXACT_MATCH") {
+    let detail = "Quote is for an equivalent part, not an exact match to the BOM line - needs engineering sign-off.";
+    if (!hasPrice) detail += " Price not yet received.";
+    return { status: "SUBSTITUTION", detail };
+  }
+  if (!hasPrice) return { status: "ESTIMATE", detail: "Exact part identified, but no price has been received yet." };
+  if (vendorStatus === "NEEDS_QUALIFICATION") return { status: "ESTIMATE", detail: "Exact part and price in hand, but supplier qualification is still pending." };
+  return { status: "FIRM_QUOTE", detail: "Exact part, approved supplier, price in hand - ready to transact." };
+}
+
+function runStage6(standardized, sourced, comparison) {
+  const sourcedByRow = Object.fromEntries(sourced.map(s => [s.sourceRow, s]));
+  const comparisonByRow = Object.fromEntries(comparison.map(c => [c.row, c]));
+
+  return standardized.map(line => {
+    const s = sourcedByRow[line.sourceRow] || {};
+    const c = comparisonByRow[line.sourceRow];
+    const { status, detail } = classifyStatus(s.vendorStatus || "UNSOURCED", s.matchConfidence || "", false);
+    return {
+      sourceRow: line.sourceRow, name: line.name, unitId: line.unitId, specs: line.specs, qty: line.qty, reasoning: line.reasoning,
+      quotedPartNumber: s.resolvedUnitId || "", supplier: s.manufacturer || "", iso9001: s.iso9001 || "",
+      unitPrice: null, extendedPrice: null, leadTimeDays: null, status, detail,
+      evaluationRef: c ? `Comparison, Source Row ${line.sourceRow}` : "",
+    };
+  });
+}
+
+
+// ============================================================
+// UI orchestration
+// ============================================================
+
+const SAMPLE_ROWS = [
+  ["Client Corp - Export from ERP", null, null, null, null, null],
+  ["Generated 2026-09-01", null, null, null, null, null],
+  ["Ln", "Mfg P/N", "Desc", "Spec", "Qty per unit", "Comments"],
+  [1, "RS-2210-B", "Servo motor bracket", "Aluminum, 6061-T6", 4, ""],
+  [2, "8420-K", "Hex socket cap screw", "M4 x 12mm", 16, ""],
+  [3, "", "Right angle gearbox, 20:1 ratio", "20:1", 2, "no mfg PN provided by client, matched from description"],
+  [4, "TB-100", "Terminal block", "10 position, 300V", 3, ""],
+  [5, "LM-6UU", "Linear bearing", "6mm bore", 8, "qty looks high for a single-arm design, double-check"],
+  [6, "PSU-24-5A", "Power supply", "24V 5A", 1, ""],
+  [7, "", "Custom laser-cut acrylic enclosure panel", "3mm thickness", 2, "one-off custom part for this design, no standard catalog match expected"],
+];
+
+const STEP_LABELS = [
+  "Normalize BOM", "Resolve parts", "Vendor coverage & qualification",
+  "RFQ dispatch & quotes", "Best-offer comparison", "Assemble final output",
+];
+
+let state = null; // { standardized, s1review, resolved, s2review, sourced, s3review, rfqs, quotes, s4review, comparison, s5review, final, s6review }
+
+function buildStepper() {
+  const el = document.getElementById("stepper");
+  el.innerHTML = STEP_LABELS.map((label, i) => `
+    <div class="step" data-state="pending" id="step-${i}">
+      <div class="n">${String(i + 1).padStart(2, "0")}</div>
+      <div class="label">${label}</div>
+      <div class="count" id="step-${i}-count"></div>
+    </div>
+  `).join("");
+}
+
+function setStep(i, stateName, countText) {
+  const el = document.getElementById(`step-${i}`);
+  el.dataset.state = stateName;
+  if (countText !== undefined) document.getElementById(`step-${i}-count`).textContent = countText;
+}
+
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function runPipeline(rawRows) {
+  document.getElementById("results").classList.remove("show");
+  buildStepper();
+  await sleep(50);
+
+  // Stage 1
+  setStep(0, "running");
+  await sleep(180);
+  const s1 = runStage1(rawRows);
+  setStep(0, "done", `${s1.standardized.length} lines, ${s1.review.length} flagged`);
+
+  // Stage 2
+  setStep(1, "running");
+  await sleep(180);
+  const s2 = runStage2(s1.standardized);
+  const noMatch = s2.resolved.filter(r => r.matchConfidence === "NO_MATCH").length;
+  setStep(1, "done", `${s2.resolved.length - noMatch} resolved, ${noMatch} no match`);
+
+  // Stage 3
+  setStep(2, "running");
+  await sleep(180);
+  const s3 = runStage3(s2.resolved);
+  const approved = s3.sourced.filter(r => r.vendorStatus === "APPROVED_EXISTING").length;
+  setStep(2, "done", `${approved} pre-approved, ${s3.sourced.length - approved} need review`);
+
+  // Stage 4
+  setStep(3, "running");
+  await sleep(180);
+  const s4 = runStage4(s3.sourced);
+  setStep(3, "done", `${s4.rfqs.length} RFQ(s), ${s4.quotes.length} repl(ies)`);
+
+  // Stage 5
+  setStep(4, "running");
+  await sleep(180);
+  const weights = currentWeights();
+  const s5 = runStage5(s3.sourced, s4.quotes, weights);
+  setStep(4, "done", `${s5.comparison.length} line(s) scored`);
+
+  // Stage 6
+  setStep(5, "running");
+  await sleep(180);
+  const s6 = runStage6(s1.standardized, s3.sourced, s5.comparison);
+  setStep(5, "done", `${s6.length} line(s) in final file`);
+
+  state = {
+    standardized: s1.standardized, sourced: s3.sourced, rfqs: s4.rfqs, quotes: s4.quotes,
+    review: [...s1.review, ...s2.review, ...s3.review, ...s4.review, ...s5.review],
+    comparison: s5.comparison, final: s6,
+  };
+
+  renderAll();
+  document.getElementById("results").classList.add("show");
+}
+
+function currentWeights() {
+  return {
+    price: parseFloat(document.getElementById("wPrice").value),
+    leadTime: parseFloat(document.getElementById("wLead").value),
+    qualification: parseFloat(document.getElementById("wQual").value),
+  };
+}
+
+function rerunFromStage5() {
+  if (!state) return;
+  const weights = currentWeights();
+  const s5 = runStage5(state.sourced, state.quotes, weights);
+  const s6 = runStage6(state.standardized, state.sourced, s5.comparison);
+  state.comparison = s5.comparison;
+  state.final = s6;
+  renderFinal();
+  renderStage5();
+}
+
+function escapeHtml(s) {
+  return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+}
+
+function renderTable(elId, columns, rows) {
+  const el = document.getElementById(elId);
+  if (rows.length === 0) {
+    el.innerHTML = `<tr><td class="empty-note">No rows.</td></tr>`;
+    return;
+  }
+  const head = `<tr>${columns.map(c => `<th>${c.label}</th>`).join("")}</tr>`;
+  const body = rows.map(r => `<tr>${columns.map(c => {
+    const val = c.render ? c.render(r) : escapeHtml(r[c.key]);
+    return `<td class="${c.mono ? "mono" : ""}">${val}</td>`;
+  }).join("")}</tr>`).join("");
+  el.innerHTML = head + body;
+}
+
+function badge(status) {
+  return `<span class="badge ${status}">${status}</span>`;
+}
+
+function renderFinal() {
+  document.getElementById("finalCount").textContent = `${state.final.length} line(s)`;
+  renderTable("finalTable", [
+    { label: "Row", key: "sourceRow", mono: true },
+    { label: "Name", key: "name" },
+    { label: "Quoted P/N", key: "quotedPartNumber", mono: true },
+    { label: "Supplier", key: "supplier" },
+    { label: "ISO 9001", key: "iso9001" },
+    { label: "Status", render: r => badge(r.status) },
+    { label: "Detail", key: "detail" },
+  ], state.final);
+}
+
+function renderStage1() {
+  renderTable("stage1Table", [
+    { label: "Row", key: "sourceRow", mono: true },
+    { label: "Name", key: "name" },
+    { label: "Unit ID", key: "unitId", mono: true },
+    { label: "Specs", key: "specs" },
+    { label: "Qty", key: "qty", mono: true },
+    { label: "Reasoning", key: "reasoning" },
+  ], state.standardized);
+}
+
+function renderStage2() {
+  const rows = state.sourced; // sourced carries stage2 fields forward
+  renderTable("stage2Table", [
+    { label: "Row", key: "sourceRow", mono: true },
+    { label: "Name", key: "name" },
+    { label: "Category", key: "category" },
+    { label: "Match Confidence", key: "matchConfidence" },
+    { label: "Resolved Unit ID", key: "resolvedUnitId", mono: true },
+    { label: "Manufacturer", key: "manufacturer" },
+  ], rows);
+}
+
+function renderStage3() {
+  renderTable("stage3Table", [
+    { label: "Row", key: "sourceRow", mono: true },
+    { label: "Manufacturer", key: "manufacturer" },
+    { label: "Vendor Status", key: "vendorStatus" },
+    { label: "ISO 9001", key: "iso9001" },
+    { label: "Channel", key: "contactChannel" },
+    { label: "Contact", render: r => escapeHtml(r.contactEmail || r.portalUrl || "") },
+  ], state.sourced);
+}
+
+function renderStage4() {
+  const rows = state.quotes.map(q => ({ ...q }));
+  renderTable("stage4Table", [
+    { label: "Row", key: "row", mono: true },
+    { label: "Source", key: "source" },
+    { label: "Manufacturer", key: "manufacturer" },
+    { label: "Raw content", key: "rawText" },
+  ], rows);
+}
+
+function renderStage5() {
+  renderTable("stage5Table", [
+    { label: "Row", key: "row", mono: true },
+    { label: "Manufacturer", key: "manufacturer" },
+    { label: "Vendor Status", key: "vendorStatus" },
+    { label: "ISO 9001", key: "iso9001" },
+    { label: "Score", key: "score", mono: true },
+    { label: "Selected", render: r => r.selected ? "yes" : "" },
+  ], state.comparison);
+}
+
+function renderReview() {
+  document.getElementById("reviewCount").textContent = `${state.review.length}`;
+  const el = document.getElementById("reviewList");
+  if (state.review.length === 0) {
+    el.innerHTML = `<p class="empty-note">Nothing flagged.</p>`;
+    return;
+  }
+  el.innerHTML = state.review.map(r => `
+    <div class="review-item">
+      <span class="row-tag">Row ${escapeHtml(r.row)}</span>
+      <p>${escapeHtml(r.issue)}</p>
+    </div>
+  `).join("");
+}
+
+function renderAll() {
+  renderFinal();
+  renderStage1();
+  renderStage2();
+  renderStage3();
+  renderStage4();
+  renderStage5();
+  renderReview();
+}
+
+function downloadFinal() {
+  if (!state) return;
+  const wb = XLSX.utils.book_new();
+
+  const finalRows = [
+    ["Source Row", "Name", "Unit ID", "Specifications/Size", "Quantity", "Reasoning",
+     "Quoted Part Number", "Supplier", "Supplier Qualification (ISO 9001)",
+     "Unit Price", "Extended Price", "Lead Time (days)", "Status", "Status Detail", "Evaluation Record Reference"],
+    ...state.final.map(r => [r.sourceRow, r.name, r.unitId, r.specs, r.qty, r.reasoning,
+      r.quotedPartNumber, r.supplier, r.iso9001, r.unitPrice, r.extendedPrice, r.leadTimeDays,
+      r.status, r.detail, r.evaluationRef]),
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet(finalRows);
+  XLSX.utils.book_append_sheet(wb, ws1, "Final Quote");
+
+  const reviewRows = [["Source Row", "Issue"], ...state.review.map(r => [r.row, r.issue])];
+  const ws2 = XLSX.utils.aoa_to_sheet(reviewRows);
+  XLSX.utils.book_append_sheet(wb, ws2, "Review Needed");
+
+  XLSX.writeFile(wb, "final_quote.xlsx");
+}
+
+// --- file intake ---
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+    runPipeline(rows);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+
+dropzone.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+
+["dragenter", "dragover"].forEach(evt =>
+  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("drag"); }));
+["dragleave", "drop"].forEach(evt =>
+  dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("drag"); }));
+dropzone.addEventListener("drop", (e) => {
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+document.getElementById("sampleBtn").addEventListener("click", () => runPipeline(SAMPLE_ROWS));
+document.getElementById("downloadBtn").addEventListener("click", downloadFinal);
+
+["wPrice", "wLead", "wQual"].forEach(id => {
+  document.getElementById(id).addEventListener("input", (e) => {
+    document.getElementById(id === "wPrice" ? "wPriceLabel" : id === "wLead" ? "wLeadLabel" : "wQual2Label")
+      .textContent = parseFloat(e.target.value).toFixed(2);
+    rerunFromStage5();
+  });
+});
+
+buildStepper();
+</script>
+</body>
+</html>
