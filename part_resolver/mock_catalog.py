@@ -7,8 +7,8 @@ a real run; it exists purely so the resolution logic is checkable here.
 """
 
 EXACT_BY_ID = {
-    "TB-100": {"manufacturer": "ElectroConn", "description": "10-position screw terminal block, 300V rated", "mpn": "TB-100"},
-    "PSU-24-5A": {"manufacturer": "MeanTech", "description": "24V 5A enclosed switching power supply", "mpn": "PSU-24-5A"},
+    "TB-100": {"manufacturer": "ElectroConn", "description": "10-position screw terminal block, 300V rated", "mpn": "TB-100", "buy_url": "https://www.electroconn-example.com/products/TB-100"},
+    "PSU-24-5A": {"manufacturer": "MeanTech", "description": "24V 5A enclosed switching power supply", "mpn": "PSU-24-5A", "buy_url": "https://www.meantech-example.com/shop/PSU-24-5A"},
     "8420-K": {"manufacturer": "FastenCo", "description": "Hex socket cap screw, M4 x 12mm, stainless", "mpn": "8420-K"},
     "LM-6UU": {"manufacturer": "LinearMotion Inc", "description": "Linear ball bearing, 6mm bore", "mpn": "LM6UU"},
 }

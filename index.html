@@ -134,6 +134,10 @@
   .badge.UNEXPLORED_SOURCE { background: var(--rust-soft); border-color: var(--rust); color: #5c2415; }
   .badge.NEEDS_QUALIFICATION { background: var(--amber-soft); border-color: var(--amber); color: #5c3d10; }
   .badge.APPROVED_EXISTING { background: var(--accent-soft); border-color: var(--accent); color: #1c3a30; }
+  .badge.LINK_CONTACT { background: var(--accent-soft); border-color: var(--accent); color: #1c3a30; }
+  .badge.PORTAL_CONTACT { background: var(--amber-soft); border-color: var(--amber); color: #5c3d10; }
+  .badge.EMAIL_CONTACT { background: var(--slate-soft); border-color: var(--slate); color: #333c45; }
+  .badge.NONE_CONTACT { background: var(--rust-soft); border-color: var(--rust); color: #5c2415; }
 
   .review-item { padding: 9px 0; border-bottom: 1px solid #eeece4; font-size: 12.5px; }
   .review-item:last-child { border-bottom: none; }
@@ -425,8 +429,8 @@ function classifyLine(name, specs) {
 
 // Same entries as mock_catalog.py in the Python prototype.
 const MOCK_EXACT_CATALOG = {
-  "TB-100": { manufacturer: "ElectroConn", description: "10-position screw terminal block, 300V rated", mpn: "TB-100" },
-  "PSU-24-5A": { manufacturer: "MeanTech", description: "24V 5A enclosed switching power supply", mpn: "PSU-24-5A" },
+  "TB-100": { manufacturer: "ElectroConn", description: "10-position screw terminal block, 300V rated", mpn: "TB-100", buyUrl: "https://www.electroconn-example.com/products/TB-100" },
+  "PSU-24-5A": { manufacturer: "MeanTech", description: "24V 5A enclosed switching power supply", mpn: "PSU-24-5A", buyUrl: "https://www.meantech-example.com/shop/PSU-24-5A" },
   "8420-K": { manufacturer: "FastenCo", description: "Hex socket cap screw, M4 x 12mm, stainless", mpn: "8420-K" },
   "LM-6UU": { manufacturer: "LinearMotion Inc", description: "Linear ball bearing, 6mm bore", mpn: "LM6UU" },
 };
@@ -438,13 +442,15 @@ const MOCK_SEARCH_CATALOG = {
 function findCandidate(name, unitId, specs) {
   const category = classifyLine(name, specs);
   if (unitId && MOCK_EXACT_CATALOG[unitId]) {
-    return { category, source: "exact_id", ...MOCK_EXACT_CATALOG[unitId] };
+    const c = MOCK_EXACT_CATALOG[unitId];
+    return { category, source: "exact_id", manufacturer: c.manufacturer, description: c.description, mpn: c.mpn, buyUrl: c.buyUrl || "" };
   }
   const key = name.trim().toLowerCase();
   if (MOCK_SEARCH_CATALOG[key]) {
-    return { category, source: "description_search", ...MOCK_SEARCH_CATALOG[key] };
+    const c = MOCK_SEARCH_CATALOG[key];
+    return { category, source: "description_search", manufacturer: c.manufacturer, description: c.description, mpn: c.mpn, buyUrl: c.buyUrl || "" };
   }
-  return { category, source: "none", manufacturer: "", description: "", mpn: "" };
+  return { category, source: "none", manufacturer: "", description: "", mpn: "", buyUrl: "" };
 }
 
 function runStage2(standardized) {
@@ -464,7 +470,8 @@ function runStage2(standardized) {
       note = "No exact or probable match found - route to supplier discovery from scratch.";
     }
     resolved.push({ ...line, category: candidate.category, matchConfidence,
-      resolvedUnitId: candidate.mpn, manufacturer: candidate.manufacturer, catalogDescription: candidate.description });
+      resolvedUnitId: candidate.mpn, manufacturer: candidate.manufacturer, catalogDescription: candidate.description,
+      purchaseUrl: candidate.buyUrl || "" });
     review.push({ row: line.sourceRow, issue: note });
   });
   return { resolved, review };
@@ -501,10 +508,13 @@ function runStage3(resolved) {
     }
 
     let vendorStatus, iso9001;
-    if (line.manufacturer && !contact) {
+    if (line.manufacturer && !contact && !line.purchaseUrl) {
+      // Only truly "unexplored" if there's neither a relationship contact
+      // NOR a direct purchase link - a distributor buy link means this
+      // part is reachable even with no account on file.
       vendorStatus = "UNEXPLORED_SOURCE";
       iso9001 = "";
-      review.push({ row: line.sourceRow, issue: `No saved email contact or portal login for '${line.manufacturer}' - this source hasn't been explored yet. Needs manual outreach before qualification or an RFQ can proceed.` });
+      review.push({ row: line.sourceRow, issue: `No saved email contact, portal login, or purchase link for '${line.manufacturer}' - this source hasn't been explored yet. Needs manual outreach before qualification or an RFQ can proceed.` });
     } else if (APPROVED_VENDORS.has(line.manufacturer)) {
       vendorStatus = "APPROVED_EXISTING";
       iso9001 = "N/A (pre-approved)";
@@ -618,6 +628,16 @@ function runStage5(sourced, quotes, weights) {
 
 // ===================== Stage 6: Final output =====================
 
+// Priority, most to least direct - a distributor purchase link beats a
+// portal login (one click vs. one login), which beats a plain email
+// contact (requires sending an RFQ and waiting).
+function labelContact(purchaseUrl, portalUrl, contactEmail) {
+  if (purchaseUrl) return { contactType: "LINK", contactValue: purchaseUrl };
+  if (portalUrl) return { contactType: "PORTAL", contactValue: portalUrl };
+  if (contactEmail) return { contactType: "EMAIL", contactValue: contactEmail };
+  return { contactType: "NONE", contactValue: "" };
+}
+
 function classifyStatus(vendorStatus, matchConfidence, hasPrice) {
   if (vendorStatus === "UNSOURCED") return { status: "UNSOURCED", detail: "No supplier could be identified for this line." };
   if (vendorStatus === "UNEXPLORED_SOURCE") {
@@ -641,10 +661,12 @@ function runStage6(standardized, sourced, comparison) {
     const s = sourcedByRow[line.sourceRow] || {};
     const c = comparisonByRow[line.sourceRow];
     const { status, detail } = classifyStatus(s.vendorStatus || "UNSOURCED", s.matchConfidence || "", false);
+    const { contactType, contactValue } = labelContact(s.purchaseUrl || "", s.portalUrl || "", s.contactEmail || "");
     return {
       sourceRow: line.sourceRow, name: line.name, unitId: line.unitId, specs: line.specs, qty: line.qty, reasoning: line.reasoning,
       quotedPartNumber: s.resolvedUnitId || "", supplier: s.manufacturer || "", iso9001: s.iso9001 || "",
       unitPrice: null, extendedPrice: null, leadTimeDays: null, status, detail,
+      contactType, contactValue,
       evaluationRef: c ? `Comparison, Source Row ${line.sourceRow}` : "",
     };
   });
@@ -791,6 +813,12 @@ function badge(status) {
   return `<span class="badge ${status}">${status}</span>`;
 }
 
+function contactBadge(type, value) {
+  if (type === "NONE") return `<span class="badge NONE_CONTACT">NONE</span>`;
+  const label = type === "LINK" ? `<a href="${escapeHtml(value)}" target="_blank" rel="noopener">open</a>` : escapeHtml(value);
+  return `<span class="badge ${type}_CONTACT">${type}</span> <span class="mono" style="font-size:11.5px;">${label}</span>`;
+}
+
 function renderFinal() {
   document.getElementById("finalCount").textContent = `${state.final.length} line(s)`;
   renderTable("finalTable", [
@@ -799,6 +827,7 @@ function renderFinal() {
     { label: "Quoted P/N", key: "quotedPartNumber", mono: true },
     { label: "Supplier", key: "supplier" },
     { label: "ISO 9001", key: "iso9001" },
+    { label: "Contact", render: r => contactBadge(r.contactType, r.contactValue) },
     { label: "Status", render: r => badge(r.status) },
     { label: "Detail", key: "detail" },
   ], state.final);
@@ -891,10 +920,11 @@ function downloadFinal() {
   const finalRows = [
     ["Source Row", "Name", "Unit ID", "Specifications/Size", "Quantity", "Reasoning",
      "Quoted Part Number", "Supplier", "Supplier Qualification (ISO 9001)",
-     "Unit Price", "Extended Price", "Lead Time (days)", "Status", "Status Detail", "Evaluation Record Reference"],
+     "Unit Price", "Extended Price", "Lead Time (days)", "Contact Type", "Contact / Link",
+     "Status", "Status Detail", "Evaluation Record Reference"],
     ...state.final.map(r => [r.sourceRow, r.name, r.unitId, r.specs, r.qty, r.reasoning,
       r.quotedPartNumber, r.supplier, r.iso9001, r.unitPrice, r.extendedPrice, r.leadTimeDays,
-      r.status, r.detail, r.evaluationRef]),
+      r.contactType, r.contactValue, r.status, r.detail, r.evaluationRef]),
   ];
   const ws1 = XLSX.utils.aoa_to_sheet(finalRows);
   XLSX.utils.book_append_sheet(wb, ws1, "Final Quote");

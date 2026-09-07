@@ -44,7 +44,7 @@ def draft_and_send(sourced_path: str, output_path: str = "rfqs_sent.xlsx"):
     rfqs, portal_lines = [], []
     for (name, unit_id, specs, qty, reasoning, source_row, category, match_confidence,
          resolved_unit_id, manufacturer, catalog_description, vendor_status, iso9001,
-         channel, contact_email, portal_url) in rows:
+         channel, contact_email, portal_url, purchase_url) in rows:
 
         if vendor_status == "UNSOURCED":
             continue

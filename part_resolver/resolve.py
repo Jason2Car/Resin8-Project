@@ -14,10 +14,13 @@ from router import classify_line
 
 def find_candidate(name: str, unit_id: str, specs: str, electronic_backend, mechanical_backend):
     """Returns one of:
-      {"category", "source": "exact_id", "resolved_unit_id", "manufacturer", "catalog_description"}
+      {"category", "source": "exact_id", "resolved_unit_id", "manufacturer", "catalog_description", "purchase_url"}
       {"category", "source": "description_search", ...same fields...}
       {"category", "source": "none"}
     Plausibility of an exact_id hit is NOT judged here - see pipeline_stage2.py.
+    purchase_url is "" whenever the backend didn't return one (true for every
+    mechanical hit today, and for electronics results with no offer link) -
+    Stage 6 falls back to portal/email contact when this is empty.
     """
     category = classify_line(name, specs)
     backend = electronic_backend if category == "ELECTRONIC" else mechanical_backend
@@ -28,7 +31,7 @@ def find_candidate(name: str, unit_id: str, specs: str, electronic_backend, mech
         if exact:
             return {"category": category, "source": "exact_id",
                     "resolved_unit_id": exact["mpn"], "manufacturer": exact["manufacturer"],
-                    "catalog_description": exact["description"]}
+                    "catalog_description": exact["description"], "purchase_url": exact.get("buy_url", "")}
 
     search_fn = getattr(backend, "search_by_description", None)
     candidates = search_fn(name) if search_fn else []
@@ -36,7 +39,7 @@ def find_candidate(name: str, unit_id: str, specs: str, electronic_backend, mech
         top = candidates[0]
         return {"category": category, "source": "description_search",
                 "resolved_unit_id": top["mpn"], "manufacturer": top["manufacturer"],
-                "catalog_description": top["description"]}
+                "catalog_description": top["description"], "purchase_url": top.get("buy_url", "")}
 
     return {"category": category, "source": "none",
-            "resolved_unit_id": "", "manufacturer": "", "catalog_description": ""}
+            "resolved_unit_id": "", "manufacturer": "", "catalog_description": "", "purchase_url": ""}

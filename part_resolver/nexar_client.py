@@ -40,7 +40,11 @@ def _get_token():
 
 def lookup_by_mpn(mpn: str):
     """Exact lookup by manufacturer part number.
-    Returns {manufacturer, description, mpn} or None if not found / no access."""
+    Returns {manufacturer, description, mpn, buy_url} or None if not found / no access.
+    NOTE: `sellerOffers.clickUrl` below is a reasonable guess based on how Nexar
+    exposes distributor offer links, not confirmed against the live schema
+    (no network access in this sandbox to check the current docs) - verify
+    the exact field name against https://nexar.com/api before relying on it."""
     token = _get_token()
     if not token:
         return None
@@ -50,7 +54,7 @@ def lookup_by_mpn(mpn: str):
     query($mpn: String!) {
       supSearchMpn(q: $mpn, limit: 1) {
         results {
-          part { mpn manufacturer { name } shortDescription }
+          part { mpn manufacturer { name } shortDescription sellerOffers { clickUrl } }
         }
       }
     }
@@ -65,10 +69,12 @@ def lookup_by_mpn(mpn: str):
     if not results:
         return None
     part = results[0]["part"]
+    offers = part.get("sellerOffers") or []
     return {
         "manufacturer": part["manufacturer"]["name"],
         "description": part["shortDescription"],
         "mpn": part["mpn"],
+        "buy_url": offers[0]["clickUrl"] if offers and offers[0].get("clickUrl") else "",
     }
 
 
@@ -83,7 +89,7 @@ def search_by_description(description: str, limit: int = 3):
     query($q: String!, $limit: Int!) {
       supSearch(q: $q, limit: $limit) {
         results {
-          part { mpn manufacturer { name } shortDescription }
+          part { mpn manufacturer { name } shortDescription sellerOffers { clickUrl } }
         }
       }
     }
@@ -100,6 +106,7 @@ def search_by_description(description: str, limit: int = 3):
             "manufacturer": r["part"]["manufacturer"]["name"],
             "description": r["part"]["shortDescription"],
             "mpn": r["part"]["mpn"],
+            "buy_url": (r["part"].get("sellerOffers") or [{}])[0].get("clickUrl", ""),
         }
         for r in results
     ]

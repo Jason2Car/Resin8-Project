@@ -35,7 +35,7 @@ from supplier_contacts import get_contact
 SOURCED_COLUMNS = ["Name", "Unit ID", "Specifications/Size", "Quantity", "Reasoning",
                     "Source Row", "Category", "Match Confidence", "Resolved Unit ID",
                     "Manufacturer", "Catalog Description", "Vendor Status", "ISO 9001",
-                    "Contact Channel", "Contact Email", "Portal URL"]
+                    "Contact Channel", "Contact Email", "Portal URL", "Purchase URL"]
 
 
 def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
@@ -50,7 +50,7 @@ def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
 
     sourced = []
     for (name, unit_id, specs, qty, reasoning, source_row, category,
-         match_confidence, resolved_unit_id, manufacturer, catalog_description) in rows:
+         match_confidence, resolved_unit_id, manufacturer, catalog_description, purchase_url) in rows:
 
         if match_confidence == "NO_MATCH":
             candidates = find_suppliers(name)
@@ -64,7 +64,7 @@ def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
                                      "Issue": "No supplier candidates found - needs manual sourcing, no automated path available yet."})
             sourced.append(_row(name, unit_id, specs, qty, reasoning, source_row, category,
                                  match_confidence, resolved_unit_id, manufacturer, catalog_description,
-                                 vendor_status, iso_status, None))
+                                 vendor_status, iso_status, None, purchase_url))
             continue
 
         # Contact/login lookup - wrapped so one bad manufacturer name can't
@@ -77,11 +77,14 @@ def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
             review_rows.append({"Source Row": source_row,
                                  "Issue": f"Error looking up contact info for '{manufacturer}': {e}"})
 
-        if manufacturer and not contact:
+        if manufacturer and not contact and not purchase_url:
+            # Only truly "unexplored" if there's neither a relationship
+            # contact NOR a direct purchase link - a distributor buy link
+            # means this part is reachable even with no account on file.
             vendor_status = "UNEXPLORED_SOURCE"
             iso_status = ""
             review_rows.append({"Source Row": source_row,
-                                 "Issue": f"No saved email contact or portal login for '{manufacturer}' - this "
+                                 "Issue": f"No saved email contact, portal login, or purchase link for '{manufacturer}' - this "
                                           f"source hasn't been explored yet. Needs manual outreach before "
                                           f"qualification or an RFQ can proceed."})
         elif is_covered(manufacturer):
@@ -97,14 +100,14 @@ def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
 
         sourced.append(_row(name, unit_id, specs, qty, reasoning, source_row, category,
                              match_confidence, resolved_unit_id, manufacturer, catalog_description,
-                             vendor_status, iso_status, contact))
+                             vendor_status, iso_status, contact, purchase_url))
 
     _write_output(sourced, review_rows, output_path)
     return sourced, review_rows
 
 
 def _row(name, unit_id, specs, qty, reasoning, source_row, category, match_confidence,
-          resolved_unit_id, manufacturer, catalog_description, vendor_status, iso_status, contact):
+          resolved_unit_id, manufacturer, catalog_description, vendor_status, iso_status, contact, purchase_url):
     return {
         "Name": name, "Unit ID": unit_id, "Specifications/Size": specs, "Quantity": qty,
         "Reasoning": reasoning, "Source Row": source_row, "Category": category,
@@ -114,6 +117,7 @@ def _row(name, unit_id, specs, qty, reasoning, source_row, category, match_confi
         "Contact Channel": contact["channel"] if contact else "",
         "Contact Email": contact["email"] if contact else "",
         "Portal URL": contact["portal_url"] if contact else "",
+        "Purchase URL": purchase_url or "",
     }
 
 

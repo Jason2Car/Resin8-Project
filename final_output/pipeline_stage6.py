@@ -11,11 +11,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 
 from openpyxl import load_workbook, Workbook
 from status import classify
+from contact_label import label_contact
 
 FINAL_COLUMNS = [
     "Source Row", "BOM Name", "BOM Unit ID", "BOM Specifications/Size", "BOM Quantity", "BOM Reasoning",
     "Quoted Part Number", "Supplier", "Supplier Qualification (ISO 9001)",
     "Unit Price", "Extended Price", "Lead Time (days)", "Estimated Ship Date", "Quote Validity",
+    "Contact Type", "Contact / Link",
     "Status", "Status Detail", "Evaluation Record Reference",
 ]
 
@@ -27,7 +29,8 @@ def run(standardized_path: str, sourced_path: str, comparison_path: str, output_
 
     sourced_wb = load_workbook(sourced_path, data_only=True)
     sourced_rows = {r[5]: {"resolved_unit_id": r[8], "manufacturer": r[9], "vendor_status": r[11],
-                            "iso9001": r[12], "match_confidence": r[7]}
+                            "iso9001": r[12], "match_confidence": r[7], "contact_email": r[14],
+                            "portal_url": r[15], "purchase_url": r[16]}
                     for r in sourced_wb["Sourced"].iter_rows(min_row=2, values_only=True)}
 
     comparison_wb = load_workbook(comparison_path, data_only=True)
@@ -54,6 +57,9 @@ def run(standardized_path: str, sourced_path: str, comparison_path: str, output_
 
         status, detail = classify(sourced.get("vendor_status", "UNSOURCED"),
                                    sourced.get("match_confidence", ""), unit_price)
+        contact_type, contact_value = label_contact(sourced.get("purchase_url", ""),
+                                                      sourced.get("portal_url", ""),
+                                                      sourced.get("contact_email", ""))
 
         final_rows.append({
             "Source Row": source_row, "BOM Name": bom["name"], "BOM Unit ID": bom["unit_id"],
@@ -62,6 +68,7 @@ def run(standardized_path: str, sourced_path: str, comparison_path: str, output_
             "Supplier Qualification (ISO 9001)": sourced.get("iso9001", ""),
             "Unit Price": unit_price, "Extended Price": extended_price,
             "Lead Time (days)": selected.get("lead_time_days"), "Estimated Ship Date": "", "Quote Validity": "",
+            "Contact Type": contact_type, "Contact / Link": contact_value,
             "Status": status, "Status Detail": detail,
             "Evaluation Record Reference": f"comparison_bom.xlsx, Source Row {source_row}",
         })

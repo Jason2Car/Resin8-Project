@@ -50,10 +50,17 @@ Routes each line to an electronics path (Octopart/Nexar — real API client
 included) or a mechanical path (no equivalent aggregator exists —
 `mechanical_search.py` is an honest placeholder, not a stub pretending to
 work). Confirms exact-ID matches via a batched LLM plausibility check
-rather than trusting a part-number match blindly.
+rather than trusting a part-number match blindly. When the electronics
+catalog returns a distributor purchase link, it's carried through as
+`Purchase URL` — Stage 6 uses this as the most direct way to transact,
+ahead of a portal or email contact.
 Needs: `NEXAR_CLIENT_ID`/`NEXAR_CLIENT_SECRET` + `pip install requests` for
 real electronics lookups. A mechanical search backend still needs to be
-chosen and wired in (see the module's docstring for the tradeoffs).
+chosen and wired in (see the module's docstring for the tradeoffs). Note:
+`nexar_client.py`'s purchase-link field name (`sellerOffers.clickUrl`) is a
+reasonable guess based on how Nexar typically exposes distributor offer
+links, not confirmed against the live schema — verify against
+https://nexar.com/api before relying on it.
 
 ## Stage 3 — Vendor coverage & qualification (`supplier_discovery/`)
 `approved_vendors.py`, `qualification.py`, `supplier_search.py`, `supplier_contacts.py`, `pipeline_stage3.py`
@@ -61,14 +68,18 @@ chosen and wired in (see the module's docstring for the tradeoffs).
 Checks each resolved part against the client's existing approved vendor
 list. The contact/login lookup is wrapped in try/except so one bad
 manufacturer name can't crash the whole batch, and lines with a resolved
-manufacturer but no saved email contact or portal login are marked
-`UNEXPLORED_SOURCE` — a distinct status from `NEEDS_QUALIFICATION`, since
-"we don't know how to reach them yet" is a different problem than "we know
-them, they're just not qualified." Stage 4 skips these cleanly instead of
-attempting a dispatch with nowhere to send it, and Stage 6's final status
-column says so explicitly rather than folding it into a generic failure.
-Anything not covered also gets an ISO 9001 check (usually comes back
-"Unknown" — there's no unified public registry, this is flagged not
+manufacturer but no saved email contact, portal login, *or* purchase link
+are marked `UNEXPLORED_SOURCE` — a distinct status from `NEEDS_QUALIFICATION`,
+since "we don't know how to reach them yet" is a different problem than "we
+know them, they're just not qualified." (A distributor purchase link counts
+as reachable even with no account on file — a real bug caught while
+building this: the first version flagged electronics parts as unexplored
+purely because no email/portal contact existed, ignoring that a live buy
+link needs neither.) Stage 4 skips `UNEXPLORED_SOURCE` lines cleanly instead
+of attempting a dispatch with nowhere to send it, and Stage 6's final
+status column says so explicitly rather than folding it into a generic
+failure. Anything not covered also gets an ISO 9001 check (usually comes
+back "Unknown" — there's no unified public registry, this is flagged not
 faked).
 Needs: a real approved-vendor-list export in place of `approved_vendors.py`'s
 mock set, and a real qualification workflow behind `qualification.py`.
@@ -98,7 +109,7 @@ there's usually only one candidate to "compare" — the scoring logic is
 written for N candidates once that's addressed upstream.
 
 ## Stage 6 — Final output (`final_output/`)
-`status.py`, `pipeline_stage6.py`
+`status.py`, `contact_label.py`, `pipeline_stage6.py`
 
 Joins Stages 1, 3, and 5 into one file, classifies every line as
 `FIRM_QUOTE` / `ESTIMATE` / `SUBSTITUTION` / `UNSOURCED`, and never drops a
@@ -107,8 +118,17 @@ line — unsourced parts get a row with a reason, not a blank. A line marked
 (no quote is possible either way), but the detail column says which one it
 actually was — "no supplier found" and "supplier found, but nobody's
 reached out to them yet" are different problems and shouldn't read the
-same to whoever's reviewing this file. This is the file a client engineer
-downloads.
+same to whoever's reviewing this file.
+
+Every line also gets a **Contact Type** + **Contact / Link** pair
+(`contact_label.py`), picking the single most direct way to actually
+transact, in priority order: a distributor **LINK** (click and buy) beats
+a supplier **PORTAL** login (one login away), which beats a plain **EMAIL**
+contact (send an RFQ, wait for a reply), which beats **NONE** (nothing on
+file at all). Labeling the type, not just showing a value, is what makes
+the column scannable — a URL alone doesn't tell you whether it's something
+you can click through to buy or just a portal you'll need to log into.
+This is the file a client engineer downloads.
 
 ## Browser demo (`index.html`)
 
@@ -133,6 +153,10 @@ try/catch around the contact lookup.
 
 ## Known gaps, by design not by accident
 - One candidate supplier per line (Stage 2/3) — limits Stage 5's comparison.
+- Purchase links only exist for electronics parts resolved through the
+  Nexar/Octopart catalog — mechanical parts never get a `LINK` today since
+  there's no equivalent aggregator to pull one from, so they max out at
+  `PORTAL` or `EMAIL`.
 - Mechanical part search and general supplier discovery have no backend
   wired in (`mechanical_search.py`, `supplier_search.py`) — there's no
   aggregator API for this the way Octopart covers electronics.

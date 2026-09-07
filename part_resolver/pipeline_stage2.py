@@ -23,7 +23,7 @@ from llm import check_part_plausibility
 
 RESOLVED_COLUMNS = ["Name", "Unit ID", "Specifications/Size", "Quantity", "Reasoning",
                     "Source Row", "Category", "Match Confidence", "Resolved Unit ID",
-                    "Manufacturer", "Catalog Description"]
+                    "Manufacturer", "Catalog Description", "Purchase URL"]
 
 
 def run(input_path: str, output_path: str = "resolved_bom.xlsx", use_mock: bool = False):
@@ -84,7 +84,7 @@ def run(input_path: str, output_path: str = "resolved_bom.xlsx", use_mock: bool 
             "Quantity": l["qty"], "Reasoning": l["reasoning"], "Source Row": l["source_row"],
             "category": l["category"], "match_confidence": confidence,
             "resolved_unit_id": l["resolved_unit_id"], "manufacturer": l["manufacturer"],
-            "catalog_description": l["catalog_description"],
+            "catalog_description": l["catalog_description"], "purchase_url": l["purchase_url"],
         })
         if note:
             review_rows.append({"Source Row": l["source_row"], "Issue": note})
@@ -101,7 +101,7 @@ def _write_output(resolved, review_rows, output_path):
     for r in resolved:
         ws.append([r["Name"], r["Unit ID"], r["Specifications/Size"], r["Quantity"], r["Reasoning"],
                     r["Source Row"], r["category"], r["match_confidence"],
-                    r["resolved_unit_id"], r["manufacturer"], r["catalog_description"]])
+                    r["resolved_unit_id"], r["manufacturer"], r["catalog_description"], r["purchase_url"]])
 
     ws2 = wb.create_sheet("Review Needed")
     ws2.append(["Source Row", "Issue"])
