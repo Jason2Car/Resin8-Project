@@ -4,7 +4,11 @@ it's a firm quote, an estimate, a substitution, or a failure to source -
 this is where those four buckets get decided, from signals already computed
 by earlier stages rather than a new judgment call:
 
-  UNSOURCED    - Stage 2/3 never found a supplier at all
+  UNSOURCED    - Stage 2/3 never found a supplier at all, OR a supplier was
+                 found but no contact/login method exists for them yet
+                 (Stage 3's UNEXPLORED_SOURCE) - both are "no quote is
+                 possible right now," just for different reasons, which the
+                 detail message distinguishes
   SUBSTITUTION - an equivalent part was used, not the exact one requested
                  (match_confidence != EXACT_MATCH) - true regardless of
                  whether a price came back, since "which part" and "what
@@ -19,6 +23,11 @@ def classify(vendor_status: str, match_confidence: str, unit_price) -> tuple:
     """Returns (status, detail)."""
     if vendor_status == "UNSOURCED":
         return "UNSOURCED", "No supplier could be identified for this line."
+
+    if vendor_status == "UNEXPLORED_SOURCE":
+        return ("UNSOURCED", "A likely part/manufacturer match exists, but no contact method or portal login "
+                "has been established for this supplier - unexplored source, needs manual outreach before "
+                "it can be qualified or quoted.")
 
     if match_confidence != "EXACT_MATCH":
         detail = "Quote is for an equivalent part, not an exact match to the BOM line - needs engineering sign-off."

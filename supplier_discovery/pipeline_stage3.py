@@ -2,15 +2,23 @@
 Reads Stage 2's output, adds Vendor Status per line:
   APPROVED_EXISTING  - manufacturer is already on the approved vendor list,
                        nothing further needed for this line
-  NEEDS_QUALIFICATION - a manufacturer was resolved (Stage 2 found the part)
-                       but it isn't approved yet - ISO 9001 status gets
-                       checked (usually comes back unknown - see
-                       qualification.py) and flagged for the qualification
-                       reviewer, not blocked
-  UNSOURCED          - Stage 2 found no part match at all - supplier
-                       discovery runs (usually empty in this sandbox - see
-                       supplier_search.py) and this is exactly the case the
-                       brief means by "every unsourced line explained"
+  NEEDS_QUALIFICATION - a manufacturer was resolved AND a contact/login
+                       method is on file, but the vendor isn't approved yet
+  UNEXPLORED_SOURCE  - a manufacturer was resolved, but there's no saved
+                       email contact or portal login for them at all - this
+                       is a different problem than "not yet qualified": we
+                       haven't even established a way to reach them. Kept
+                       distinct so Stage 4 doesn't waste a cycle trying to
+                       dispatch an RFQ that has nowhere to go, and so a
+                       human doing outreach can tell "needs qualification
+                       paperwork" apart from "needs a phone call first."
+  UNSOURCED          - Stage 2 found no part match at all
+
+The contact lookup is wrapped in try/except - a malformed manufacturer name
+or any lookup error shouldn't crash the whole batch over one line. On
+failure the line is marked UNEXPLORED_SOURCE with the error recorded, same
+as a clean "no contact found" result - fails closed, not silently skipped
+and not fatal.
 
 Review queue keeps being carried forward and appended to, same as Stage 2.
 """
@@ -54,6 +62,28 @@ def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
             else:
                 review_rows.append({"Source Row": source_row,
                                      "Issue": "No supplier candidates found - needs manual sourcing, no automated path available yet."})
+            sourced.append(_row(name, unit_id, specs, qty, reasoning, source_row, category,
+                                 match_confidence, resolved_unit_id, manufacturer, catalog_description,
+                                 vendor_status, iso_status, None))
+            continue
+
+        # Contact/login lookup - wrapped so one bad manufacturer name can't
+        # take down the whole batch. Any failure here is treated exactly
+        # like "no contact found," not as a crash.
+        try:
+            contact = get_contact(manufacturer) if manufacturer else None
+        except Exception as e:
+            contact = None
+            review_rows.append({"Source Row": source_row,
+                                 "Issue": f"Error looking up contact info for '{manufacturer}': {e}"})
+
+        if manufacturer and not contact:
+            vendor_status = "UNEXPLORED_SOURCE"
+            iso_status = ""
+            review_rows.append({"Source Row": source_row,
+                                 "Issue": f"No saved email contact or portal login for '{manufacturer}' - this "
+                                          f"source hasn't been explored yet. Needs manual outreach before "
+                                          f"qualification or an RFQ can proceed."})
         elif is_covered(manufacturer):
             vendor_status = "APPROVED_EXISTING"
             iso_status = "N/A (pre-approved)"
@@ -65,25 +95,26 @@ def run(input_path: str, output_path: str = "sourced_bom.xlsx"):
                                  "Issue": f"'{manufacturer}' is not yet an approved vendor "
                                           f"(ISO 9001 status: {iso_status}) - needs qualification review before an RFQ can be sent."})
 
-        sourced.append({
-            "Name": name, "Unit ID": unit_id, "Specifications/Size": specs, "Quantity": qty,
-            "Reasoning": reasoning, "Source Row": source_row, "Category": category,
-            "Match Confidence": match_confidence, "Resolved Unit ID": resolved_unit_id,
-            "Manufacturer": manufacturer, "Catalog Description": catalog_description,
-            "Vendor Status": vendor_status, "ISO 9001": iso_status,
-        })
-
-        contact = get_contact(manufacturer) if manufacturer else None
-        if manufacturer and vendor_status != "UNSOURCED" and not contact:
-            review_rows.append({"Source Row": source_row,
-                                 "Issue": f"'{manufacturer}' has no contact/channel on file - "
-                                          f"cannot send an RFQ until this is captured during qualification."})
-        sourced[-1]["Contact Channel"] = contact["channel"] if contact else ""
-        sourced[-1]["Contact Email"] = contact["email"] if contact else ""
-        sourced[-1]["Portal URL"] = contact["portal_url"] if contact else ""
+        sourced.append(_row(name, unit_id, specs, qty, reasoning, source_row, category,
+                             match_confidence, resolved_unit_id, manufacturer, catalog_description,
+                             vendor_status, iso_status, contact))
 
     _write_output(sourced, review_rows, output_path)
     return sourced, review_rows
+
+
+def _row(name, unit_id, specs, qty, reasoning, source_row, category, match_confidence,
+          resolved_unit_id, manufacturer, catalog_description, vendor_status, iso_status, contact):
+    return {
+        "Name": name, "Unit ID": unit_id, "Specifications/Size": specs, "Quantity": qty,
+        "Reasoning": reasoning, "Source Row": source_row, "Category": category,
+        "Match Confidence": match_confidence, "Resolved Unit ID": resolved_unit_id,
+        "Manufacturer": manufacturer, "Catalog Description": catalog_description,
+        "Vendor Status": vendor_status, "ISO 9001": iso_status,
+        "Contact Channel": contact["channel"] if contact else "",
+        "Contact Email": contact["email"] if contact else "",
+        "Portal URL": contact["portal_url"] if contact else "",
+    }
 
 
 def _write_output(sourced, review_rows, output_path):

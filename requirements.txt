@@ -1,0 +1,15 @@
+# Core - needed to run any stage
+openpyxl
+pandas
+
+# Stage 1 - column disambiguation / reasoning-consistency checks (llm.py)
+# Stage 2 - part-plausibility checks (llm.py)
+# Stage 4 - quote-field extraction, portal link/field selection (llm.py)
+anthropic
+
+# Stage 2 - real Octopart/Nexar electronics lookups (nexar_client.py)
+requests
+
+# Stage 4 - real portal navigation (portal_navigator.py)
+# after installing, also run: playwright install chromium
+playwright

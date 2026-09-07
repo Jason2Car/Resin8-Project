@@ -48,6 +48,10 @@ def draft_and_send(sourced_path: str, output_path: str = "rfqs_sent.xlsx"):
 
         if vendor_status == "UNSOURCED":
             continue
+        if vendor_status == "UNEXPLORED_SOURCE":
+            # No contact/login on file at all - Stage 3 already flagged this
+            # for manual outreach. Nothing for Stage 4 to dispatch to.
+            continue
         if category == "ELECTRONIC":
             review_rows.append({"Source Row": source_row,
                                  "Issue": "Distributor part - pricing should come from a Stage 2 catalog "

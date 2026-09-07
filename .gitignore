@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated at runtime by each stage script - example_run/ holds a
+# committed sample of these so the repo shows working output without
+# anyone needing to run the pipeline first.
+*.xlsx
+!example_run/*.xlsx

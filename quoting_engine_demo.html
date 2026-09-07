@@ -131,6 +131,9 @@
   .badge.ESTIMATE { background: var(--amber-soft); border-color: var(--amber); color: #5c3d10; }
   .badge.SUBSTITUTION { background: var(--slate-soft); border-color: var(--slate); color: #333c45; }
   .badge.UNSOURCED { background: var(--rust-soft); border-color: var(--rust); color: #5c2415; }
+  .badge.UNEXPLORED_SOURCE { background: var(--rust-soft); border-color: var(--rust); color: #5c2415; }
+  .badge.NEEDS_QUALIFICATION { background: var(--amber-soft); border-color: var(--amber); color: #5c3d10; }
+  .badge.APPROVED_EXISTING { background: var(--accent-soft); border-color: var(--accent); color: #1c3a30; }
 
   .review-item { padding: 9px 0; border-bottom: 1px solid #eeece4; font-size: 12.5px; }
   .review-item:last-child { border-bottom: none; }
@@ -481,21 +484,34 @@ function runStage3(resolved) {
   const sourced = [];
   const review = [];
   resolved.forEach(line => {
-    let vendorStatus, iso9001;
-    const contact = line.manufacturer ? SUPPLIER_DIRECTORY[line.manufacturer] : null;
-
     if (line.matchConfidence === "NO_MATCH") {
-      vendorStatus = "UNSOURCED"; iso9001 = "";
+      sourced.push({ ...line, vendorStatus: "UNSOURCED", iso9001: "", contactChannel: "", contactEmail: "", portalUrl: "" });
       review.push({ row: line.sourceRow, issue: "No supplier candidates found - needs manual sourcing, no automated path available yet." });
-    } else if (APPROVED_VENDORS.has(line.manufacturer)) {
-      vendorStatus = "APPROVED_EXISTING"; iso9001 = "N/A (pre-approved)";
-    } else {
-      vendorStatus = "NEEDS_QUALIFICATION"; iso9001 = "Unknown";
-      review.push({ row: line.sourceRow, issue: `'${line.manufacturer}' is not yet an approved vendor (ISO 9001 status: Unknown) - needs qualification review before an RFQ can be sent.` });
+      return;
     }
 
-    if (line.manufacturer && vendorStatus !== "UNSOURCED" && !contact) {
-      review.push({ row: line.sourceRow, issue: `'${line.manufacturer}' has no contact/channel on file - cannot send an RFQ until this is captured during qualification.` });
+    // Contact/login lookup - wrapped so one bad manufacturer name can't
+    // take down the whole batch, matching the Python prototype's try/except.
+    let contact = null;
+    try {
+      contact = line.manufacturer ? (SUPPLIER_DIRECTORY[line.manufacturer] || null) : null;
+    } catch (e) {
+      contact = null;
+      review.push({ row: line.sourceRow, issue: `Error looking up contact info for '${line.manufacturer}': ${e}` });
+    }
+
+    let vendorStatus, iso9001;
+    if (line.manufacturer && !contact) {
+      vendorStatus = "UNEXPLORED_SOURCE";
+      iso9001 = "";
+      review.push({ row: line.sourceRow, issue: `No saved email contact or portal login for '${line.manufacturer}' - this source hasn't been explored yet. Needs manual outreach before qualification or an RFQ can proceed.` });
+    } else if (APPROVED_VENDORS.has(line.manufacturer)) {
+      vendorStatus = "APPROVED_EXISTING";
+      iso9001 = "N/A (pre-approved)";
+    } else {
+      vendorStatus = "NEEDS_QUALIFICATION";
+      iso9001 = "Unknown";
+      review.push({ row: line.sourceRow, issue: `'${line.manufacturer}' is not yet an approved vendor (ISO 9001 status: Unknown) - needs qualification review before an RFQ can be sent.` });
     }
 
     sourced.push({ ...line, vendorStatus, iso9001,
@@ -525,6 +541,10 @@ function runStage4(sourced) {
 
   sourced.forEach(line => {
     if (line.vendorStatus === "UNSOURCED") return;
+    if (line.vendorStatus === "UNEXPLORED_SOURCE") {
+      // Already flagged by Stage 3 - nothing for Stage 4 to dispatch to.
+      return;
+    }
     if (line.category === "ELECTRONIC") {
       review.push({ row: line.sourceRow, issue: "Distributor part - pricing should come from a Stage 2 catalog query, not an RFQ. Skipped here." });
       return;
@@ -600,6 +620,9 @@ function runStage5(sourced, quotes, weights) {
 
 function classifyStatus(vendorStatus, matchConfidence, hasPrice) {
   if (vendorStatus === "UNSOURCED") return { status: "UNSOURCED", detail: "No supplier could be identified for this line." };
+  if (vendorStatus === "UNEXPLORED_SOURCE") {
+    return { status: "UNSOURCED", detail: "A likely part/manufacturer match exists, but no contact method or portal login has been established for this supplier - unexplored source, needs manual outreach before it can be qualified or quoted." };
+  }
   if (matchConfidence !== "EXACT_MATCH") {
     let detail = "Quote is for an equivalent part, not an exact match to the BOM line - needs engineering sign-off.";
     if (!hasPrice) detail += " Price not yet received.";
@@ -808,9 +831,9 @@ function renderStage3() {
   renderTable("stage3Table", [
     { label: "Row", key: "sourceRow", mono: true },
     { label: "Manufacturer", key: "manufacturer" },
-    { label: "Vendor Status", key: "vendorStatus" },
+    { label: "Vendor Status", render: r => badge(r.vendorStatus) },
     { label: "ISO 9001", key: "iso9001" },
-    { label: "Channel", key: "contactChannel" },
+    { label: "Channel", render: r => r.contactChannel || (r.manufacturer ? '<span class="mono" style="color:var(--rust);">unexplored</span>' : "") },
     { label: "Contact", render: r => escapeHtml(r.contactEmail || r.portalUrl || "") },
   ], state.sourced);
 }
